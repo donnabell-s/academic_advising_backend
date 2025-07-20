@@ -63,9 +63,14 @@ def clean_and_transform(df):
     df.replace('', np.nan, inplace=True)
     df.fillna('Unknown', inplace=True)
     
-    # Extract program and year level
-    df[['Program', 'Year Level']] = df['Program & Year Level'].str.extract(r'([A-Z]+)\\s*-\\s*(\\d+)')
-    df['Year Level'] = df['Year Level'].astype(int)
+    # Extract program and year level with error handling
+    if 'Program & Year Level' in df.columns:
+        extraction = df['Program & Year Level'].str.extract(r'([A-Z]+)\\s*-\\s*(\\d+)')
+        df['Program'] = extraction[0].fillna('Unknown')
+        df['Year Level'] = pd.to_numeric(extraction[1], errors='coerce').fillna(1).astype(int)
+    else:
+        df['Program'] = 'Unknown'
+        df['Year Level'] = 1
     
     # Map categorical features to numerical values
     performance_map = {
@@ -120,10 +125,22 @@ def clean_and_transform(df):
     marital_map = {
         'Together': 'Together',
         'Separated': 'Separated',
-        'One or both deceased': 'Deceased',
+        'One or Both Parents Deceased': 'Deceased',
         'Prefer not to say': 'Unknown'
     }
-    df['Parents Marital Status'] = df['What is your parents\' current relationship status?'].map(marital_map)
+    # Find marital status column dynamically
+    marital_col = None
+    for col in df.columns:
+        if 'relationship status' in col.lower():
+            marital_col = col
+            break
+    
+    if marital_col and marital_col in df.columns:
+        df['Parents Marital Status'] = df[marital_col].map(marital_map)
+        # Fill any unmapped values with 'Unknown'
+        df['Parents Marital Status'] = df['Parents Marital Status'].fillna('Unknown')
+    else:
+        df['Parents Marital Status'] = 'Unknown'
     
     birth_order_map = {
         'Oldest': 'Oldest',
@@ -133,7 +150,14 @@ def clean_and_transform(df):
     }
     df['Birth Order'] = df['What is your birth order among your siblings?'].map(birth_order_map)
     
-    df['Has External Responsibilities'] = df['Do you have major responsibilities outside of school (e.g., part-time job, caregiving)? If yes, please describe briefly. Leave blank if none.'].apply(lambda x: 0 if x == 'Unknown' else 1)
+    # External responsibilities with safe handling
+    resp_col = 'Do you have major responsibilities outside of school (e.g., part-time job, caregiving)? If yes, please describe briefly. Leave blank if none.'
+    if resp_col in df.columns:
+        df['Has External Responsibilities'] = df[resp_col].apply(
+            lambda x: 0 if str(x).lower() in ['unknown', 'nan', ''] else 1
+        )
+    else:
+        df['Has External Responsibilities'] = 0
     
     return df
 
@@ -149,27 +173,115 @@ def select_final_features(df):
         'Has External Responsibilities', 'Average'
     ]
     
-    df_final = df[final_columns].copy()
-    df_final = df_final.drop(columns=['Student ID'])
+    # Only include columns that actually exist
+    existing_columns = [col for col in final_columns if col in df.columns]
+    df_final = df[existing_columns].copy()
+    
+    if 'Student ID' in df_final.columns:
+        df_final = df_final.drop(columns=['Student ID'])
+    
+    # Handle NaN values before any processing
+    print(f"DEBUG: Checking for NaN values before processing...")
+    nan_counts = df_final.isnull().sum()
+    for col, count in nan_counts[nan_counts > 0].items():
+        print(f"DEBUG: Column '{col}' has {count} NaN values")
+    
+    # Fill NaN values with appropriate defaults
+    # Numeric columns that can have NaN
+    numeric_fill_cols = ['Academic Performance Change', 'Workload Rating', 'Help Seeking', 
+                        'Hobby Count', 'Financial Status', 'Average']
+    for col in numeric_fill_cols:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].fillna(0.0)
+    
+    # Binary columns (learning styles, responsibilities)
+    binary_cols = ['Learning_Visual', 'Learning_Auditory', 'Learning_Reading/Writing', 
+                   'Learning_Kinesthetic', 'Has External Responsibilities']
+    for col in binary_cols:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].fillna(0)
+    
+    # Categorical columns
+    categorical_cols = ['Program', 'Personality', 'Parents Marital Status', 'Birth Order']
+    for col in categorical_cols:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].fillna('Unknown')
+    
+    # Fill remaining NaN values
+    df_final = df_final.fillna(0)
     
     # Encode categorical features
     label_encoders = {}
     for col in ['Program', 'Personality', 'Birth Order']:
-        le = LabelEncoder()
-        df_final[col] = le.fit_transform(df_final[col])
-        label_encoders[col] = le
+        if col in df_final.columns:
+            le = LabelEncoder()
+            # Ensure no NaN values before encoding
+            df_final[col] = df_final[col].astype(str).fillna('Unknown')
+            df_final[col] = le.fit_transform(df_final[col])
+            label_encoders[col] = le
     
-    # One-hot encode marital status
-    df_final = pd.get_dummies(df_final, columns=['Parents Marital Status'], prefix='Marital', dtype=int)
+    # One-hot encode marital status - ensure specific columns for cluster engine
+    if 'Parents Marital Status' in df_final.columns:
+        df_final['Parents Marital Status'] = df_final['Parents Marital Status'].astype(str).fillna('Unknown')
+        
+        # Create the specific marital status columns expected by cluster engine
+        df_final['Marital_Separated'] = (df_final['Parents Marital Status'] == 'Separated').astype(int)
+        df_final['Marital_Together'] = (df_final['Parents Marital Status'] == 'Together').astype(int)
+        
+        # Drop the original column
+        df_final = df_final.drop(columns=['Parents Marital Status'])
     
-    # Scale numerical features
+    # Scale numerical features - handle NaN values first
     numeric_cols = ['Year Level', 'Academic Performance Change', 'Workload Rating', 
                    'Hobby Count', 'Financial Status', 'Average']
-    scaler = StandardScaler()
-    df_final[numeric_cols] = scaler.fit_transform(df_final[numeric_cols])
+    
+    # Ensure numeric columns exist and have no NaN
+    existing_numeric_cols = [col for col in numeric_cols if col in df_final.columns]
+    if existing_numeric_cols:
+        # Fill any remaining NaN in numeric columns
+        df_final[existing_numeric_cols] = df_final[existing_numeric_cols].fillna(0.0)
+        
+        # Ensure all values are finite
+        for col in existing_numeric_cols:
+            df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
+            # Replace infinite values
+            df_final[col] = df_final[col].replace([np.inf, -np.inf], 0.0)
+        
+        scaler = StandardScaler()
+        try:
+            df_final[existing_numeric_cols] = scaler.fit_transform(df_final[existing_numeric_cols])
+        except Exception as e:
+            print(f"DEBUG: Scaling error: {e}")
+            # If scaling fails, just normalize manually
+            for col in existing_numeric_cols:
+                mean_val = df_final[col].mean()
+                std_val = df_final[col].std()
+                if std_val > 0:
+                    df_final[col] = (df_final[col] - mean_val) / std_val
+                else:
+                    df_final[col] = 0.0
+            scaler = None
+    else:
+        scaler = StandardScaler()  # Empty scaler
     
     # Drop some columns (adjust as needed)
-    df_final = df_final.drop(columns=['Program', 'Year Level', 'Gender'])
+    cols_to_drop = ['Program', 'Year Level', 'Gender']
+    existing_cols_to_drop = [col for col in cols_to_drop if col in df_final.columns]
+    if existing_cols_to_drop:
+        df_final = df_final.drop(columns=existing_cols_to_drop)
+    
+    # Final check for NaN values
+    print(f"DEBUG: Final NaN check...")
+    final_nan_counts = df_final.isnull().sum()
+    if final_nan_counts.sum() > 0:
+        print(f"DEBUG: Still have NaN values: {final_nan_counts[final_nan_counts > 0].to_dict()}")
+        df_final = df_final.fillna(0.0)
+    
+    # Ensure all values are finite
+    df_final = df_final.replace([np.inf, -np.inf], 0.0)
+    
+    print(f"DEBUG: Final dataframe shape: {df_final.shape}")
+    print(f"DEBUG: Final columns: {list(df_final.columns)}")
     
     return df_final, label_encoders, scaler
 
@@ -184,14 +296,27 @@ def convert_to_api_format(processed_df):
     # Reset index to get sequential IDs (optional)
     processed_df = processed_df.reset_index(drop=True)
     
+    # Replace any remaining NaN values with appropriate defaults
+    processed_df = processed_df.fillna(0.0)
+    
     # Convert to list of dictionaries
     students_list = processed_df.to_dict('records')
     
-    # Optional: Round float values for cleaner output
+    # Clean and validate values for each student
     for student in students_list:
         for key, value in student.items():
-            if isinstance(value, (np.float32, np.float64)):
+            if pd.isna(value) or (isinstance(value, float) and value != value):
+                # Handle NaN values based on field type
+                if key.startswith('Learning_') or key.startswith('Marital_') or key == 'Has External Responsibilities':
+                    student[key] = 0
+                else:
+                    student[key] = 0.0
+            elif isinstance(value, (np.float32, np.float64)):
+                # Round float values for cleaner output
                 student[key] = round(float(value), 2)
+            elif isinstance(value, (np.int32, np.int64)):
+                # Convert numpy integers to Python int
+                student[key] = int(value)
     
     return students_list
 

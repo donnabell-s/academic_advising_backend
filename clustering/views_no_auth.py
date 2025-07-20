@@ -62,39 +62,11 @@ class CSVUploadView(APIView):
             csv_file=csv_file
         )
         
-        # Automatically start processing after upload
-        try:
-            processor = CSVProcessor(csv_upload)
-            processing_result = processor.process_and_cluster()
-            
-            if processing_result['success']:
-                serializer = CSVUploadSerializer(csv_upload)
-                return Response({
-                    "message": "CSV uploaded and processed successfully",
-                    "upload": serializer.data,
-                    "processing_result": {
-                        "total_students": processing_result['total_students'],
-                        "clusters_summary": processing_result['clusters_summary'],
-                        "processing_time": processing_result['processing_time']
-                    }
-                }, status=status.HTTP_201_CREATED)
-            else:
-                # Processing failed, but upload was successful
-                serializer = CSVUploadSerializer(csv_upload)
-                return Response({
-                    "message": "CSV uploaded but processing failed",
-                    "upload": serializer.data,
-                    "processing_error": processing_result['error']
-                }, status=status.HTTP_202_ACCEPTED)
-                
-        except Exception as e:
-            # If processing fails, still return successful upload
-            serializer = CSVUploadSerializer(csv_upload)
-            return Response({
-                "message": "CSV uploaded but processing failed",
-                "upload": serializer.data,
-                "processing_error": str(e)
-            }, status=status.HTTP_202_ACCEPTED)
+        serializer = CSVUploadSerializer(csv_upload)
+        return Response({
+            "message": "CSV uploaded successfully",
+            "upload": serializer.data
+        }, status=status.HTTP_201_CREATED)
     
     def get(self, request):
         """Get list of uploaded CSV files"""
