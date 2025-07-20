@@ -1,14 +1,18 @@
 from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
+from rest_framework import viewsets
 from .services.cluster_engine import cluster_students
 from .services.csv_processor import CSVProcessor
 from .models import CSVUpload, ProcessedStudent
 from .serializers import CSVUploadSerializer, ClusteringResultSerializer, ProcessedStudentSerializer
 import uuid
+from .models import Advisor, Cluster, Student
+from .serializers import AdvisorSerializer, ClusterSerializer, StudentSerializer
 
 class ClusterStudentsView(APIView):
     """Original view for clustering individual students"""
@@ -226,3 +230,26 @@ class ClusterDetailView(APIView):
             "student_count": len(students_in_cluster),
             "students": serializer.data
         })
+
+
+class AdvisorViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = Advisor.objects.all()
+    serializer_class = AdvisorSerializer
+
+class ClusterViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = Cluster.objects.all()
+    serializer_class = ClusterSerializer
+
+class StudentViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = Student.objects.all()
+    serializer_class = StudentSerializer
+
+@api_view(['GET'])
+def available_clusters(request):
+    permission_classes = [AllowAny]
+    clusters = Cluster.objects.filter(advisor__isnull=True)
+    serializer = ClusterSerializer(clusters, many=True)
+    return Response(serializer.data)
