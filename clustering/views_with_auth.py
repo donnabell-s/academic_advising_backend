@@ -1,4 +1,4 @@
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -62,39 +62,11 @@ class CSVUploadView(APIView):
             csv_file=csv_file
         )
         
-        # Automatically start processing after upload
-        try:
-            processor = CSVProcessor(csv_upload)
-            processing_result = processor.process_and_cluster()
-            
-            if processing_result['success']:
-                serializer = CSVUploadSerializer(csv_upload)
-                return Response({
-                    "message": "CSV uploaded and processed successfully",
-                    "upload": serializer.data,
-                    "processing_result": {
-                        "total_students": processing_result['total_students'],
-                        "clusters_summary": processing_result['clusters_summary'],
-                        "processing_time": processing_result['processing_time']
-                    }
-                }, status=status.HTTP_201_CREATED)
-            else:
-                # Processing failed, but upload was successful
-                serializer = CSVUploadSerializer(csv_upload)
-                return Response({
-                    "message": "CSV uploaded but processing failed",
-                    "upload": serializer.data,
-                    "processing_error": processing_result['error']
-                }, status=status.HTTP_202_ACCEPTED)
-                
-        except Exception as e:
-            # If processing fails, still return successful upload
-            serializer = CSVUploadSerializer(csv_upload)
-            return Response({
-                "message": "CSV uploaded but processing failed",
-                "upload": serializer.data,
-                "processing_error": str(e)
-            }, status=status.HTTP_202_ACCEPTED)
+        serializer = CSVUploadSerializer(csv_upload)
+        return Response({
+            "message": "CSV uploaded successfully",
+            "upload": serializer.data
+        }, status=status.HTTP_201_CREATED)
     
     def get(self, request):
         """Get list of uploaded CSV files"""
@@ -118,7 +90,11 @@ class ProcessCSVView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        csv_upload = get_object_or_404(
+            CSVUpload, 
+            id=upload_id, 
+            uploaded_by=request.user
+        )
         
         if csv_upload.processing_status == 'processing':
             return Response(
@@ -162,7 +138,12 @@ class ProcessingStatusView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        csv_upload = get_object_or_404(
+            CSVUpload, 
+            id=upload_id, 
+            uploaded_by=request.user
+        )
+        
         status_data = CSVProcessor.get_processing_status(upload_id)
         return Response(status_data)
 
@@ -181,7 +162,12 @@ class ClusteringResultsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        csv_upload = get_object_or_404(
+            CSVUpload, 
+            id=upload_id, 
+            uploaded_by=request.user
+        )
+        
         results = CSVProcessor.get_clustering_results(upload_id)
         
         if 'error' in results:
@@ -207,7 +193,11 @@ class ClusterDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        csv_upload = get_object_or_404(
+            CSVUpload, 
+            id=upload_id, 
+            uploaded_by=request.user
+        )
         
         if csv_upload.processing_status != 'completed':
             return Response(
