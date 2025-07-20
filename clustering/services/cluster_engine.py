@@ -4,6 +4,7 @@ import pandas as pd
 
 MODEL_PATH = 'clustering/models/kmeans_model.pkl'
 SCALER_PATH = 'clustering/models/kmeans_scaler.pkl'
+PCA_PATH = 'clustering/models/kmeans_pca.pkl'
 
 FEATURES = [
     'Academic Performance Change',
@@ -26,18 +27,20 @@ FEATURES = [
 def load_model_and_scaler():
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
-    return model, scaler
+    pca = joblib.load(PCA_PATH)
+    return model, scaler, pca
 
 def cluster_students(student_list):
     """student_list is a list of dicts with the same feature keys"""
 
     df = pd.DataFrame(student_list)
 
-    model, scaler = load_model_and_scaler()
+    model, scaler, pca = load_model_and_scaler()
     X = df[FEATURES]
     X_scaled = scaler.transform(X)
+    X_pca = pca.transform(X_scaled)
 
-    predicted_clusters = model.predict(X_scaled)
+    predicted_clusters = model.predict(X_pca)
     df['cluster'] = predicted_clusters
 
     return df.to_dict(orient='records')
