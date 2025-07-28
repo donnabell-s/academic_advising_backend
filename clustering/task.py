@@ -339,3 +339,4 @@ if __name__ == "__main__":
     processed_data, label_encoders, scaler = preprocess_pipeline('raw_data.csv')
     processed_data.to_csv('processed_student_data.csv', index=False)
     print("Preprocessing complete. Data saved to 'processed_student_data.csv'")
+
