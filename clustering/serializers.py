@@ -20,11 +20,14 @@ class ProcessedStudentSerializer(serializers.ModelSerializer):
 
 class ClusteringResultSerializer(serializers.Serializer):
     """Serializer for clustering results"""
+    success = serializers.BooleanField()
     upload_id = serializers.UUIDField()
     total_students = serializers.IntegerField()
     clusters_summary = serializers.DictField()
     processing_time = serializers.FloatField()
     students_by_cluster = serializers.DictField()
+    clustered_data = serializers.JSONField()
+    error = serializers.CharField(required=False)
 
 class AdvisorSerializer(serializers.ModelSerializer):
     # this field WILL show up on GET

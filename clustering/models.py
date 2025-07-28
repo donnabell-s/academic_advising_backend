@@ -5,7 +5,7 @@ import uuid
 class CSVUpload(models.Model):
     """Model to track CSV file uploads and processing status"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='csv_uploads')
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='csv_uploads', null=True, blank=True)
     original_filename = models.CharField(max_length=255)
     csv_file = models.FileField(upload_to='uploaded_csvs/')
     upload_timestamp = models.DateTimeField(auto_now_add=True)
