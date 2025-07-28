@@ -9,7 +9,7 @@ class CSVUpload(models.Model):
     original_filename = models.CharField(max_length=255)
     csv_file = models.FileField(upload_to='uploaded_csvs/')
     upload_timestamp = models.DateTimeField(auto_now_add=True)
-    
+
     # Processing status
     PROCESSING_STATUS_CHOICES = [
         ('uploaded', 'Uploaded'),
@@ -18,75 +18,30 @@ class CSVUpload(models.Model):
         ('failed', 'Failed'),
     ]
     processing_status = models.CharField(
-        max_length=20, 
-        choices=PROCESSING_STATUS_CHOICES, 
+        max_length=20,
+        choices=PROCESSING_STATUS_CHOICES,
         default='uploaded'
     )
-    
+
     # Results
     total_students_processed = models.IntegerField(null=True, blank=True)
     processing_error = models.TextField(null=True, blank=True)
     processed_timestamp = models.DateTimeField(null=True, blank=True)
-    
+
     class Meta:
         ordering = ['-upload_timestamp']
-    
+
     def __str__(self):
         return f"{self.original_filename} - {self.processing_status}"
-# Advisor Model
-class Advisor(models.Model):
-    advisor_id = models.CharField(max_length=15, unique=True, null=True, blank=True)
-    name = models.CharField(max_length=100)
-    email = models.EmailField(unique=True)
-    # An advisor can be unassigned (null cluster)
-    # One-to-one from Cluster will handle "cluster under" relationship
 
-
-class ProcessedStudent(models.Model):
-    """Model to store processed student data and clustering results"""
-    csv_upload = models.ForeignKey(CSVUpload, on_delete=models.CASCADE, related_name='processed_students')
-    
-    # Student identification data
-    program = models.CharField(max_length=10, null=True, blank=True)  # CS, IT, IS, ACT, EMC, GD
-    year_level = models.IntegerField(null=True, blank=True)  # 1, 2, 3, 4
-    
-    # Original student data (key features used for clustering)
-    # Using FloatField for all numeric fields to handle NaN values properly
-    academic_performance_change = models.FloatField(null=True, blank=True)
-    workload_rating = models.FloatField(null=True, blank=True)
-    learning_visual = models.FloatField(null=True, blank=True, default=0)
-    learning_auditory = models.FloatField(null=True, blank=True, default=0)
-    learning_reading_writing = models.FloatField(null=True, blank=True, default=0)
-    learning_kinesthetic = models.FloatField(null=True, blank=True, default=0)
-    help_seeking = models.FloatField(null=True, blank=True)
-    personality = models.FloatField(null=True, blank=True)
-    hobby_count = models.FloatField(null=True, blank=True)
-    financial_status = models.FloatField(null=True, blank=True)
-    birth_order = models.FloatField(null=True, blank=True)
-    has_external_responsibilities = models.FloatField(null=True, blank=True, default=0)
-    average = models.FloatField(null=True, blank=True)
-    marital_separated = models.FloatField(null=True, blank=True, default=0)
-    marital_together = models.FloatField(null=True, blank=True, default=0)
-    
-    # Clustering result
-    cluster = models.IntegerField(null=True, blank=True)
-    
-    # Metadata
-    processed_timestamp = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['cluster', 'processed_timestamp']
-    
-    def __str__(self):
-        return f"Student in Cluster {self.cluster} from {self.csv_upload.original_filename}"
-
-# Cluster Model
+# Cluster Model - Defined before Student as Student will link to it
 class Cluster(models.Model):
-    cluster_id = models.CharField(max_length=10, unique=True)
+    # Changed to IntegerField
+    cluster_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     advisor = models.OneToOneField(
-        Advisor,
+        'Advisor',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -98,15 +53,16 @@ class Cluster(models.Model):
 
     @property
     def student_count(self):
-        return self.students.count()  
+        # This will count ProcessedStudent objects linked to a cluster
+        return ProcessedStudent.objects.filter(cluster=self.cluster_id).count()
 
 # Student Model
 class Student(models.Model):
     student_id = models.CharField(max_length=15, unique=True)
-    name = models.CharField(max_length=100, null=True, blank=True) 
-    program_and_grade = models.CharField(max_length=50)  
+    name = models.CharField(max_length=100, null=True, blank=True)
+    program_and_grade = models.CharField(max_length=50)
     cluster = models.ForeignKey(
-        'Cluster',
+        Cluster, # Refer directly to the Cluster model
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -115,6 +71,48 @@ class Student(models.Model):
 
     def __str__(self):
         return f"{self.student_id} - {self.name or 'Unnamed'}"
+
+# ProcessedStudent Model
+class ProcessedStudent(models.Model):
+    """Model to store individual student data after CSV processing and clustering"""
+    csv_upload = models.ForeignKey(CSVUpload, on_delete=models.CASCADE, related_name='processed_students')
+    # Link to the Student object
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='processed_records', null=True, blank=True)
+
+    # Key features extracted/derived from CSV
+    academic_performance_change = models.FloatField(null=True, blank=True)
+    workload_rating = models.FloatField(null=True, blank=True)
+    learning_visual = models.IntegerField(null=True, blank=True, default=0)
+    learning_auditory = models.IntegerField(null=True, blank=True, default=0)
+    learning_reading_writing = models.IntegerField(null=True, blank=True, default=0)
+    learning_kinesthetic = models.IntegerField(null=True, blank=True, default=0)
+    help_seeking = models.FloatField(null=True, blank=True)
+    personality = models.FloatField(null=True, blank=True) # This should ideally be an IntegerField if encoded
+    hobby_count = models.IntegerField(null=True, blank=True)
+    financial_status = models.FloatField(null=True, blank=True)
+    birth_order = models.IntegerField(null=True, blank=True) # This should ideally be an IntegerField if encoded
+    has_external_responsibilities = models.IntegerField(null=True, blank=True, default=0)
+    average = models.FloatField(null=True, blank=True, default=0)
+    marital_separated = models.IntegerField(null=True, blank=True, default=0)
+    marital_together = models.IntegerField(null=True, blank=True, default=0)
+
+    # Clustering result (this remains an IntegerField as it's the raw cluster output)
+    cluster = models.IntegerField(null=True, blank=True)
+
+    # Metadata
+    processed_timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['cluster', 'processed_timestamp']
+
+    def __str__(self):
+        return f"Student {self.student.student_id if self.student else 'N/A'} in Cluster {self.cluster} from {self.csv_upload.original_filename}"
+
+# Advisor Model
+class Advisor(models.Model):
+    advisor_id = models.CharField(max_length=15, unique=True, null=True, blank=True)
+    name = models.CharField(max_length=100)
+    email = models.EmailField(unique=True)
 
     def __str__(self):
         return self.name
