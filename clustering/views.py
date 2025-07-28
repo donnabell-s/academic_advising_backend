@@ -234,7 +234,7 @@ class ClusterDetailView(APIView):
 
 class AdvisorViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
-    queryset = Advisor.objects.all()
+    queryset = Advisor.objects.select_related('cluster').all()
     serializer_class = AdvisorSerializer
 
 class ClusterViewSet(viewsets.ModelViewSet):
