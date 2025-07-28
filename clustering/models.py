@@ -39,6 +39,10 @@ class ProcessedStudent(models.Model):
     """Model to store processed student data and clustering results"""
     csv_upload = models.ForeignKey(CSVUpload, on_delete=models.CASCADE, related_name='processed_students')
     
+    # Student identification data
+    program = models.CharField(max_length=10, null=True, blank=True)  # CS, IT, IS, ACT, EMC, GD
+    year_level = models.IntegerField(null=True, blank=True)  # 1, 2, 3, 4
+    
     # Original student data (key features used for clustering)
     # Using FloatField for all numeric fields to handle NaN values properly
     academic_performance_change = models.FloatField(null=True, blank=True)
