@@ -40,18 +40,15 @@ class Advisor(models.Model):
     email = models.EmailField(unique=True)
     # An advisor can be unassigned (null cluster)
     # One-to-one from Cluster will handle "cluster under" relationship
-# Advisor Model
-class Advisor(models.Model):
-    advisor_id = models.CharField(max_length=15, unique=True, null=True, blank=True)
-    name = models.CharField(max_length=100)
-    email = models.EmailField(unique=True)
-    # An advisor can be unassigned (null cluster)
-    # One-to-one from Cluster will handle "cluster under" relationship
 
 
 class ProcessedStudent(models.Model):
     """Model to store processed student data and clustering results"""
     csv_upload = models.ForeignKey(CSVUpload, on_delete=models.CASCADE, related_name='processed_students')
+    
+    # Student identification data
+    program = models.CharField(max_length=10, null=True, blank=True)  # CS, IT, IS, ACT, EMC, GD
+    year_level = models.IntegerField(null=True, blank=True)  # 1, 2, 3, 4
     
     # Original student data (key features used for clustering)
     # Using FloatField for all numeric fields to handle NaN values properly
@@ -83,9 +80,6 @@ class ProcessedStudent(models.Model):
     def __str__(self):
         return f"Student in Cluster {self.cluster} from {self.csv_upload.original_filename}"
 
-    def __str__(self):
-        return self.name
-
 # Cluster Model
 class Cluster(models.Model):
     cluster_id = models.CharField(max_length=10, unique=True)
@@ -124,39 +118,3 @@ class Student(models.Model):
 
     def __str__(self):
         return self.name
-
-# Cluster Model
-class Cluster(models.Model):
-    cluster_id = models.CharField(max_length=10, unique=True)
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-    advisor = models.OneToOneField(
-        Advisor,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='cluster'
-    )
-
-    def __str__(self):
-        return self.name
-
-    @property
-    def student_count(self):
-        return self.students.count()  
-
-# Student Model
-class Student(models.Model):
-    student_id = models.CharField(max_length=15, unique=True)
-    name = models.CharField(max_length=100, null=True, blank=True) 
-    program_and_grade = models.CharField(max_length=50)  
-    cluster = models.ForeignKey(
-        'Cluster',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='students'
-    )
-
-    def __str__(self):
-        return f"{self.student_id} - {self.name or 'Unnamed'}"
