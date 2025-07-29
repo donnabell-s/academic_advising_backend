@@ -26,6 +26,8 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     path('api/clustering/', include('clustering.urls')),
+
+    path("api/", include("user_auth.urls")),
 ]
 
 # Serve media files during development
