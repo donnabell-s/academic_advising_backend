@@ -14,6 +14,13 @@ from .serializers import CSVUploadSerializer, ClusteringResultSerializer, Proces
 from django.db.models import Count
 import uuid
 import re # Import regex for program/year extraction
+from django.db.models import Count
+
+class ClusterViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = Cluster.objects.annotate(student_count=Count('student'))
+    serializer_class = ClusterSerializer
+
 
 class ClusterStudentsView(APIView):
     """Original view for clustering individual students"""

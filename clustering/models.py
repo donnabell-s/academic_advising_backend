@@ -61,13 +61,8 @@ class Student(models.Model):
     student_id = models.CharField(max_length=15, unique=True)
     name = models.CharField(max_length=100, null=True, blank=True)
     program_and_grade = models.CharField(max_length=50)
-    cluster = models.ForeignKey(
-        Cluster, # Refer directly to the Cluster model
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='students'
-    )
+    cluster = models.ForeignKey(Cluster, on_delete=models.SET_NULL, null=True, related_name='student')
+
 
     def __str__(self):
         return f"{self.student_id} - {self.name or 'Unnamed'}"

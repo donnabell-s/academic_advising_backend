@@ -10,6 +10,7 @@ from .models import CSVUpload, ProcessedStudent
 from .serializers import CSVUploadSerializer, ClusteringResultSerializer, ProcessedStudentSerializer
 import uuid
 
+
 class ClusterStudentsView(APIView):
     """Original view for clustering individual students"""
     permission_classes = [AllowAny]

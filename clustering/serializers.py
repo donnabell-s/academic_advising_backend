@@ -3,6 +3,7 @@ from .models import CSVUpload, ProcessedStudent
 from rest_framework import serializers
 from .models import Advisor, Cluster, Student
 
+
 class CSVUploadSerializer(serializers.ModelSerializer):
     """Serializer for CSV file uploads"""
     class Meta:
@@ -28,6 +29,8 @@ class ClusteringResultSerializer(serializers.Serializer):
     students_by_cluster = serializers.DictField()
     clustered_data = serializers.JSONField()
     error = serializers.CharField(required=False)
+    student_count = serializers.IntegerField(read_only=True)
+
 
 class AdvisorSerializer(serializers.ModelSerializer):
     # this field WILL show up on GET
