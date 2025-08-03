@@ -2,6 +2,18 @@ from django.db import models
 from django.contrib.auth.models import User
 import uuid
 
+class PCAComponent(models.Model):
+    """Store PCA components with descriptive names for visualization"""
+    pc_number = models.IntegerField(unique=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['pc_number']
+
+    def __str__(self):
+        return f"PC{self.pc_number}: {self.name}"
+
 class CSVUpload(models.Model):
     """Model to track CSV file uploads and processing status"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -90,6 +102,17 @@ class ProcessedStudent(models.Model):
     average = models.FloatField(null=True, blank=True, default=0)
     marital_separated = models.IntegerField(null=True, blank=True, default=0)
     marital_together = models.IntegerField(null=True, blank=True, default=0)
+    pc1_score = models.FloatField(null=True, blank=True)
+    pc2_score = models.FloatField(null=True, blank=True)
+    pc3_score = models.FloatField(null=True, blank=True)
+    pc4_score = models.FloatField(null=True, blank=True)
+    pc5_score = models.FloatField(null=True, blank=True)
+    pc6_score = models.FloatField(null=True, blank=True)
+    pc7_score = models.FloatField(null=True, blank=True)
+    pc8_score = models.FloatField(null=True, blank=True)
+    pc9_score = models.FloatField(null=True, blank=True)
+    pc10_score = models.FloatField(null=True, blank=True)
+    pc11_score = models.FloatField(null=True, blank=True)
 
     # Clustering result (this remains an IntegerField as it's the raw cluster output)
     cluster = models.IntegerField(null=True, blank=True)

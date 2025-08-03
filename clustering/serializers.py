@@ -1,8 +1,12 @@
 from rest_framework import serializers
 from .models import CSVUpload, ProcessedStudent
 from rest_framework import serializers
-from .models import Advisor, Cluster, Student
+from .models import Advisor, Cluster, Student, PCAComponent
 
+class PCAComponentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PCAComponent
+        fields = ['id', 'pc_number', 'name', 'description']
 
 class CSVUploadSerializer(serializers.ModelSerializer):
     """Serializer for CSV file uploads"""
