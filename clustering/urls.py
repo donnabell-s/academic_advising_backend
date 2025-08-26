@@ -9,7 +9,7 @@ from .views import (
 )
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import ClusterStudentsView, AdvisorViewSet, ClusterViewSet, StudentViewSet, available_clusters, PCAComponentViewSet, ExportClustersExcelView
+from .views import ClusterStudentsView, AdvisorViewSet, ClusterViewSet, StudentViewSet, available_clusters, PCAComponentViewSet, ExportClustersExcelView, TopPCAFeaturesPerClusterView, ClusterPCATopFeaturesView
 from . import views
 
 router = DefaultRouter()
@@ -35,4 +35,9 @@ urlpatterns = [
     # path('results/<str:upload_id>/cluster/<int:cluster_id>/', ClusterDetailView.as_view(), name='cluster-detail'),
     path('', include(router.urls)),
     path('clusters/available/', available_clusters),
+
+    # NEW endpoint
+    path('top-pca-features/', TopPCAFeaturesPerClusterView.as_view(), name='top-pca-features'),
+    path('clusters/<int:cluster_id>/pca-top-features/', ClusterPCATopFeaturesView.as_view(), name='cluster-pca-top-features'),
+    
 ]

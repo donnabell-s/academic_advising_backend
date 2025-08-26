@@ -18,6 +18,208 @@ from openpyxl import Workbook
 from django.utils import timezone
 from django.http import HttpResponse
 
+# NEW imports
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from .models import CSVUpload, ProcessedStudent  # already present at top in your file
+from .services.cluster_engine import FEATURES as FEATURE_DISPLAY_NAMES  # pretty labels
+import numpy as np
+
+class ClusterPCATopFeaturesView(APIView):
+    """
+    GET /api/clustering/clusters/<int:cluster_id>/pca-top-features/?top_pcs=3&top_features=3
+
+    cluster_id = PK (1..4). We map it to Cluster.cluster_id (0..3) internally.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, cluster_id: int):
+        top_pcs = int(request.query_params.get('top_pcs', 3))
+        top_features = int(request.query_params.get('top_features', 3))
+        upload_id = request.query_params.get('upload_id')
+
+        # resolve latest completed upload if none provided
+        if upload_id:
+            csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        else:
+            csv_upload = CSVUpload.objects.filter(processing_status='completed')\
+                .order_by('-processed_timestamp', '-upload_timestamp').first()
+            if not csv_upload:
+                return Response({"error": "No completed CSV uploads found."}, status=400)
+
+        # translate PK → zero-based label
+        cluster_obj = get_object_or_404(Cluster, id=cluster_id)
+        label = cluster_obj.cluster_id  # 0..3
+
+        field_order = [
+            'academic_performance_change','workload_rating',
+            'learning_visual','learning_auditory','learning_reading_writing','learning_kinesthetic',
+            'help_seeking','personality','hobby_count','financial_status',
+            'birth_order','has_external_responsibilities','average',
+            'marital_separated','marital_together',
+        ]
+
+        qs = ProcessedStudent.objects.filter(csv_upload=csv_upload, cluster=label).only(*field_order, 'cluster')
+        rows = [[getattr(ps, f) or 0 for f in field_order] for ps in qs]
+        X = np.array(rows, dtype=float)
+
+        if X.shape[0] < 2 or X.shape[1] < 2:
+            return Response({
+                "upload_id": str(csv_upload.id),
+                "cluster_id": cluster_id,
+                "pcs": [],
+                "note": "Not enough data to compute PCA for this cluster."
+            }, status=200)
+
+        scaler = StandardScaler()
+        Xs = scaler.fit_transform(X)
+        n_components = min(top_pcs, Xs.shape[1])
+        pca = PCA(n_components=n_components).fit(Xs)
+
+        pcs_payload = []
+        for i, load in enumerate(pca.components_):
+            top_idx = np.argsort(np.abs(load))[::-1][:top_features]
+            pcs_payload.append({
+                "pc_number": i + 1,
+                "explained_variance_ratio": float(pca.explained_variance_ratio_[i]),
+                "top_features": [
+                    {
+                        "feature_key": field_order[j],
+                        "loading": float(load[j]),
+                        "abs_loading": float(abs(load[j])),
+                    }
+                    for j in top_idx
+                ]
+            })
+
+        return Response({
+            "upload_id": str(csv_upload.id),
+            "cluster_id": cluster_id,  # return PK, not label
+            "pcs": pcs_payload
+        }, status=200)
+
+class TopPCAFeaturesPerClusterView(APIView):
+    """
+    GET /clustering/top-pca-features/?upload_id=<uuid>&top_pcs=3&top_features=3
+
+    For each cluster in this upload, fit a PCA on that cluster's feature matrix,
+    then return the top N features (by absolute loading) for the first K PCs.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        upload_id = request.query_params.get('upload_id')
+        if not upload_id:
+            return Response({"error": "Missing required query param 'upload_id'."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse optional params
+        try:
+            top_pcs = int(request.query_params.get('top_pcs', 3))
+            top_features = int(request.query_params.get('top_features', 3))
+        except ValueError:
+            return Response({"error": "top_pcs and top_features must be integers."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure the upload exists and is completed
+        csv_upload = get_object_or_404(CSVUpload, id=upload_id)
+        if csv_upload.processing_status != 'completed':
+            return Response({"error": f"CSV processing not completed (status={csv_upload.processing_status})."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # IMPORTANT: Field order must match how you build PCA inputs elsewhere
+        # This mirrors CSVProcessor's feature order for PCA. :contentReference[oaicite:3]{index=3}
+        field_order = [
+            'academic_performance_change',
+            'workload_rating',
+            'learning_visual',
+            'learning_auditory',
+            'learning_reading_writing',
+            'learning_kinesthetic',
+            'help_seeking',
+            'personality',
+            'hobby_count',
+            'financial_status',
+            'birth_order',
+            'has_external_responsibilities',
+            'average',
+            'marital_separated',
+            'marital_together',
+        ]
+
+        # Human-readable names aligned to the same order.
+        # These come from your clustering engine's FEATURES (same dimensionality; labels are friendly). :contentReference[oaicite:4]{index=4}
+        # We trim/align them to exactly the above 15 fields:
+        display_names = FEATURE_DISPLAY_NAMES[:]  # 15 names
+
+        # Gather data for this upload
+        ps_qs = ProcessedStudent.objects.filter(csv_upload=csv_upload).only(
+            *field_order, 'cluster'
+        )
+
+        # Bucket by cluster id (int stored on ProcessedStudent). :contentReference[oaicite:5]{index=5}
+        clusters = {}
+        for ps in ps_qs:
+            clusters.setdefault(ps.cluster, []).append([
+                getattr(ps, f, None) or 0 for f in field_order
+            ])
+
+        results = {
+            "upload_id": str(csv_upload.id),
+            "top_pcs": top_pcs,
+            "top_features_per_pc": top_features,
+            "clusters": {}
+        }
+
+        for cluster_id, rows in clusters.items():
+            X = np.array(rows, dtype=float)
+            # Need at least 2 samples and 2 features to fit PCA meaningfully
+            if X.shape[0] < 2 or X.shape[1] < 2:
+                results["clusters"][cluster_id] = {
+                    "note": "Not enough data to compute PCA for this cluster.",
+                    "pcs": []
+                }
+                continue
+
+            # Scale then PCA
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            n_components = min(top_pcs, X_scaled.shape[1])
+            pca = PCA(n_components=n_components)
+            pca.fit(X_scaled)
+
+            # components_: shape (n_components, n_features)
+            comps = pca.components_
+            evr = pca.explained_variance_ratio_.tolist()
+
+            pcs_payload = []
+            for pc_idx in range(comps.shape[0]):
+                loadings = comps[pc_idx]
+                # top indices by absolute loading
+                top_idx = np.argsort(np.abs(loadings))[::-1][:top_features]
+                top_list = []
+                for idx in top_idx:
+                    top_list.append({
+                        "feature_key": field_order[idx],
+                        "feature_name": display_names[idx] if idx < len(display_names) else field_order[idx],
+                        "loading": float(loadings[idx]),
+                        "abs_loading": float(abs(loadings[idx])),
+                    })
+
+                pcs_payload.append({
+                    "pc_number": pc_idx + 1,
+                    "explained_variance_ratio": evr[pc_idx] if pc_idx < len(evr) else None,
+                    "top_features": top_list,
+                })
+
+            results["clusters"][cluster_id] = {
+                "samples": int(X.shape[0]),
+                "pcs": pcs_payload
+            }
+
+        return Response(results, status=status.HTTP_200_OK)
+
 class ExportClustersExcelView(APIView):
     permission_classes = [AllowAny]
 
