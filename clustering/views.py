@@ -25,6 +25,8 @@ from .models import CSVUpload, ProcessedStudent  # already present at top in you
 from .services.cluster_engine import FEATURES as FEATURE_DISPLAY_NAMES  # pretty labels
 import numpy as np
 
+from .services.cluster_engine import train_and_save_model
+
 class ClusterPCATopFeaturesView(APIView):
     """
     GET /api/clustering/clusters/<int:cluster_id>/pca-top-features/?top_pcs=3&top_features=3
@@ -284,49 +286,69 @@ class ClusterViewSet(viewsets.ModelViewSet):
     serializer_class = ClusterSerializer
 
 class ClusterStudentsView(APIView):
-    """Original view for clustering individual students"""
+    """
+    POST /api/clustering/cluster-students/
+    JSON body:
+    {
+      "students": [
+        { "<feature>": <value>, ... }, ...
+      ]
+    }
+
+    Behavior:
+      - ✅ Retrains model on provided list
+      - Returns clustered batch
+    """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         students = request.data.get("students", [])
-
-        if not students:
-            return Response({"error": "No student data provided."}, status=status.HTTP_400_BAD_REQUEST)
-
+        if not isinstance(students, list) or not students:
+            return Response({"error": "Provide non-empty 'students' list."},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
-            clustered_data = cluster_students(students)
-            return Response({"clustered": clustered_data}, status=status.HTTP_200_OK)
+            # Retrain on this set, then return the clustered batch
+            _, _, _, clustered, pca_var = train_and_save_model(students, n_clusters=4, random_state=42)
+            return Response(
+                {
+                    "success": True,
+                    "total_students": len(clustered),
+                    "clustered": clustered,
+                    "pca_explained_variance": pca_var,
+                },
+                status=status.HTTP_200_OK,
+            )
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"success": False, "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CSVUploadView(APIView):
-    """Handle CSV file uploads for batch processing"""
+    """
+    POST /api/clustering/upload-csv/
+    Form-data: csv_file: <file>
+    Behavior:
+      - Saves CSVUpload row
+      - Runs preprocessing
+      - ✅ Retrains model on this upload
+      - Returns clustering results + summary
+    """
+    parser_classes = [MultiPartParser, FormParser]
     permission_classes = [AllowAny]
-    parser_classes = (MultiPartParser, FormParser)
 
-    def post(self, request, *args, **kwargs):
-        file_obj = request.FILES.get('csv_file')
-        if not file_obj:
-            return Response({"error": "No CSV file provided."}, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        serializer = CSVUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        csv_upload = CSVUpload.objects.create(
-            uploaded_by=request.user if request.user.is_authenticated else None,
-            original_filename=file_obj.name,
-            csv_file=file_obj,
-            processing_status='uploaded'
+        csv_upload = serializer.save(
+            original_filename=request.FILES['csv_file'].name if 'csv_file' in request.FILES else ''
         )
 
-        processor = CSVProcessor(csv_upload)
-        processing_result = processor.process_and_cluster()
 
-        if processing_result['success']:
-            serializer = ClusteringResultSerializer(processing_result)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        else:
-            return Response(
-                {"error": processing_result.get('error', 'An unknown error occurred during processing.')},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        processor = CSVProcessor(csv_upload)
+        result = processor.process_and_cluster()
+
+        http_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response(result, status=http_status)
 
 class ClusterStatusView(APIView):
     """Retrieve the status of a CSV upload and processing results."""

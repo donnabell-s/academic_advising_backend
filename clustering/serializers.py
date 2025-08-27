@@ -12,10 +12,18 @@ class CSVUploadSerializer(serializers.ModelSerializer):
     """Serializer for CSV file uploads"""
     class Meta:
         model = CSVUpload
-        fields = ['id', 'original_filename', 'csv_file', 'upload_timestamp', 
-                 'processing_status', 'total_students_processed', 'processing_error']
-        read_only_fields = ['id', 'upload_timestamp', 'processing_status', 
-                           'total_students_processed', 'processing_error']
+        fields = [
+            'id', 'original_filename', 'csv_file', 'upload_timestamp',
+            'processing_status', 'total_students_processed', 'processing_error',
+            'processed_timestamp',
+        ]
+        read_only_fields = [
+            'id', 'original_filename', 'upload_timestamp', 'processing_status',
+            'total_students_processed', 'processing_error', 'processed_timestamp',
+        ]
+        extra_kwargs = {
+            'csv_file': {'required': True},
+        }
 
 class ProcessedStudentSerializer(serializers.ModelSerializer):
     """Serializer for processed student data"""
