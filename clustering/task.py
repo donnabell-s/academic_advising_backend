@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 import os
+import uuid
 
 
 def load_and_initial_clean(filepath):
@@ -30,221 +31,118 @@ def load_and_initial_clean(filepath):
 
     return df_cleaned
 
+def clean_rename_and_select_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Cleans the DataFrame, renames columns from questions to titles,
+    and selects only the relevant columns for processing.
 
-def process_grades(df):
-    """Discretize grades and calculate averages."""
-    grade_cols_1 = df.columns[3:58]
-    grade_cols_2 = df.columns[68:74]
-    grade_cols = grade_cols_1.union(grade_cols_2)
+    Args:
+        df: The raw pandas DataFrame.
 
-    df_grade_cols = df[grade_cols]
+    Returns:
+        A cleaned DataFrame with specific columns selected and renamed.
+    """
+    # Drop columns that are entirely NaN
+    df_cleaned = df.dropna(axis=1, how='all')
 
-    grade_mapping = {
-        '1.0 - 1.2': 0,
-        '1.21 - 1.4': 1,
-        '1.41 - 2.0': 2,
-        '2.1 - 2.5': 3,
-        '2.51 - 3.0': 4
+    # Split 'Program & Year Level' into 'Program' and 'Year Level'
+    df_cleaned[['Program', 'Year Level']] = df_cleaned['Program & Year Level'].str.split('-', expand=True)
+    df_cleaned['Year Level'] = pd.to_numeric(df_cleaned['Year Level'], errors='coerce').fillna(0).astype(int)
+
+    # Define the mapping from original question-like columns to new titles
+    column_rename_map = {
+        'How do you feel your academic performance has changed this year?': 'Academic Performance Change',
+        'How would you rate your current academic workload?': 'Workload Rating',
+        'How do you usually handle academic challenges?': 'Help Seeking',
+        'Which personality type best describes you?': 'Personality',
+        'What activities or hobbies do you enjoy outside of class? (Select/Write at least 3)': 'Hobby Count',
+        'How would you describe your current financial situation as a student?': 'Financial Status',
+        'What is your parents’ current relationship status?': 'Parents Marital Status',
+        'What is your birth order among your siblings?': 'Birth Order',
+        'Do you have major responsibilities outside of school (e.g., part-time job, caregiving)? If yes, please describe briefly. Leave blank if none.': 'Has External Responsibilities'
     }
-
-    for col in df_grade_cols:
-        df_grade_cols[col] = df_grade_cols[col].map(grade_mapping)
-        df_grade_cols[col] = df_grade_cols[col].fillna(-1)
-
-    df_grade_cols['Average'] = df_grade_cols.apply(lambda row: row[row != -1].mean(), axis=1)
-
-    df_result = df.copy()
-    df_result['Average'] = df_grade_cols['Average']
-
-    return df_result
-
-
-def clean_and_transform(df):
-    """Clean data and transform categorical features."""
-    df.columns = df.columns.str.strip()
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
-    df.replace('', np.nan, inplace=True)
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].fillna('Unknown')
-
-    performance_map = {
-        'Significantly Improved': 2, 'Slightly Improved': 1, 'Stayed the Same': 0,
-        'Slightly Declined': -1, 'Significantly Declined': -2
-    }
-    df['Academic Performance Change'] = df['How do you feel your academic performance has changed this year?'].map(performance_map).fillna(0)
-
-    workload_map = {
-        'Very Easy': 1, 'Easy': 2, 'Moderate': 3, 'Challenging': 4, 'Very Challenging': 5
-    }
-    df['Workload Rating'] = df['How would you rate your current academic workload?'].map(workload_map).fillna(0)
-
-    df['Gender'] = df['Gender'].astype(str).apply(lambda x: 1 if x.lower() == 'female' else (0 if x.lower() == 'male' else 2))
+    df_cleaned.rename(columns=column_rename_map, inplace=True)
 
     learning_styles = ['Visual', 'Auditory', 'Reading/Writing', 'Kinesthetic']
     for style in learning_styles:
-        source_col = 'How do you prefer to learn? (Select all that apply)”'
-        if source_col in df.columns:
-            df[f'Learning_{style}'] = df[source_col].astype(str).str.contains(style, na=False).astype(int)
-        else:
-            df[f'Learning_{style}'] = 0
+        df_cleaned[f'Learning_{style}'] = df_cleaned['How do you prefer to learn? (Select all that apply)'].str.contains(style).astype(int)
 
-    help_map = {
-        'Always asks for help immediately': 0, 'Asks after trying for a while': 1,
-        'Waits too long to ask': 2, 'Prefers to solve problems alone': 3
-    }
-    df['Help Seeking'] = df['How do you usually handle academic challenges?'].map(help_map).fillna(0)
+    df_cleaned.drop(columns=['How do you prefer to learn? (Select all that apply)'], inplace=True)
 
-    if 'Which personality type best describes you?' in df.columns:
-        df['Personality_Raw'] = df['Which personality type best describes you?'].astype(str).str.extract(r'(Introvert|Ambivert|Extrovert)')[0]
-        df['Personality_Raw'] = df['Personality_Raw'].fillna('Unknown')
-    else:
-        df['Personality_Raw'] = 'Unknown'
+    # List of columns to keep for the final model
+    columns_to_keep = [
+        'Student ID', 'Name', 'Gender', 'program_str', 'year_int', 'Academic Performance Change',
+        'Workload Rating', 'Learning_Visual', 'Learning_Auditory',
+        'Learning_Reading/Writing', 'Learning_Kinesthetic', 'Help Seeking',
+        'Personality', 'Hobby Count', 'Financial Status',
+        'Parents Marital Status', 'Birth Order', 'Has External Responsibilities', 'Average'
+    ]
+    
+    all_necessary_columns = columns_to_keep
+    
+    # Filter for only the columns we need
+    df_selected = df_cleaned[[col for col in all_necessary_columns if col in df_cleaned.columns]]
 
-    if 'What activities or hobbies do you enjoy outside of class? (Select/Write at least 3)' in df.columns:
-        df['Hobby Count'] = df['What activities or hobbies do you enjoy outside of class? (Select/Write at least 3)'].astype(str).str.split(',').apply(lambda x: len(x) if isinstance(x, list) else 0)
-    else:
-        df['Hobby Count'] = 0
+    return df_selected
 
-    financial_map = {
-        'Very Comfortable': 4, 'Comfortable': 3, 'Somewhat Challenging': 2,
-        'Struggling': 1, 'Severely Struggling': 0
-    }
-    df['Financial Status'] = df['How would you describe your current financial situation as a student?'].map(financial_map).fillna(0)
+def apply_custom_mappings(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies custom mappings to categorical and ordinal features based on instructions.
 
-    marital_col = None
-    for col in df.columns:
-        if 'relationship status' in col.lower():
-            marital_col = col
-            break
+    Args:
+        df: The DataFrame with columns to be mapped.
 
-    marital_map = {
-        'Together': 'Together', 'Separated': 'Separated',
-        'One or Both Parents Deceased': 'Deceased', 'Prefer not to say': 'Unknown'
-    }
-    if marital_col and marital_col in df.columns:
-        df['Parents Marital Status_Raw'] = df[marital_col].map(marital_map)
-        df['Parents Marital Status_Raw'] = df['Parents Marital Status_Raw'].fillna('Unknown')
-    else:
-        df['Parents Marital Status_Raw'] = 'Unknown'
+    Returns:
+        The DataFrame with features numerically mapped.
+    """
+    # Define mappings
+    performance_map = {'Significantly Declined': -2, 'Slightly Declined': -1, 'Stayed the Same': 0, 'Slightly Improved': 1, 'Significantly Improved': 2}
+    workload_map = {'Very Challenging': 0, 'Challenging': 1, 'Moderate': 2, 'Easy': 3, 'Very Easy': 4}
+    help_seeking_map = {'Prefers to solve problems alone': 0, 'Waits too long to ask': 1, 'Asks after trying for a while': 2, 'Always asks for help immediately': 3}
+    personality_map = {'Introvert': 0, 'Ambivert': 1, 'Extrovert': 2}
+    financial_map = {'Severely Struggling': 0, 'Struggling': 1, 'Somewhat Challenging': 2, 'Comfortable': 3, 'Very Comfortable': 4}
+    birth_order_map = {'Only Child': 0, 'Youngest': 1, 'Middle Child': 2, 'Oldest': 3}
+    # marital_map = {'Prefer not to say': 0, 'One or both deceased': 1, 'Separated': 2, 'Together': 3}
 
-    birth_order_map = {
-        'Oldest': 'Oldest', 'Middle Child': 'Middle',
-        'Youngest': 'Youngest', 'Only Child': 'Only'
-    }
-    df['Birth Order_Raw'] = df['What is your birth order among your siblings?'].map(birth_order_map)
-    df['Birth Order_Raw'] = df['Birth Order_Raw'].fillna('Unknown')
+    # Apply mappings
+    df['Academic Performance Change'] = df['Academic Performance Change'].map(performance_map)
+    df['Workload Rating'] = df['Workload Rating'].map(workload_map)
+    df['Help Seeking'] = df['Help Seeking'].map(help_seeking_map)
+    df['Personality'] = df['Personality'].map(personality_map)
+    df['Financial Status'] = df['Financial Status'].map(financial_map)
+    df['Birth Order'] = df['Birth Order'].map(birth_order_map)
+    df['Has External Responsibilities'] = df['Has External Responsibilities'].apply(lambda x: 0 if x == 'Unknown' else 1)
+    df['Hobby Count'] = df['Hobby Count'].str.split(',').apply(lambda x: len(x) if isinstance(x, list) else 0)
 
-    resp_col = 'Do you have major responsibilities outside of school (e.g., part-time job, caregiving)? If yes, please describe briefly. Leave blank if none.'
-    if resp_col in df.columns:
-        df['Has External Responsibilities'] = df[resp_col].astype(str).apply(
-            lambda x: 0 if x.lower() in ['unknown', 'nan', '', 'none'] else 1
-        )
-    else:
-        df['Has External Responsibilities'] = 0
+    # One-hot encode marital status and drop original column
+    df['Marital_Together'] = (df['Parents Marital Status'] == 'Together').astype(int)
+    df['Marital_Separated'] = (df['Parents Marital Status'] == 'Separated').astype(int)
+    df.drop(columns=['Parents Marital Status'], inplace=True)
 
     return df
 
+def scale_features(df: pd.DataFrame):
+    """
+    Scales all numerical columns using StandardScaler.
 
-def select_final_features(df):
-    """Select and process final features for modeling."""
-    # IMPORTANT: Keep original identifiers and program/year for Student model creation
-    # These columns should NOT be encoded or scaled if they are only for identification/display
-    identifier_columns = ['Student ID', 'Name', 'program_str', 'year_int']
+    Args:
+        df: The DataFrame with numerical columns.
 
-    # Features that WILL be encoded/scaled for clustering
-    features_for_clustering_raw = [
-        'Academic Performance Change', 'Workload Rating',
-        'Learning_Visual', 'Learning_Auditory', 'Learning_Reading/Writing', 'Learning_Kinesthetic',
-        'Help Seeking', 'Personality_Raw', 'Hobby Count',
-        'Financial Status', 'Parents Marital Status_Raw', 'Birth Order_Raw',
-        'Has External Responsibilities', 'Average', 'Gender'
-    ]
+    Returns:
+        The DataFrame with scaled numerical columns.
+    """
+    # Ensure all columns are numeric before scaling
+    target_cols = ['Academic Performance Change', 'Workload Rating', 'Help Seeking', 'Financial Status', 'Birth Order', 'Personality', 'Hobby Count', 'Average']
+    numeric_cols = df[target_cols].select_dtypes(include=[np.number]).columns
 
-    # Combine all columns needed in the final DataFrame
-    all_needed_columns = identifier_columns + [col for col in features_for_clustering_raw if col not in identifier_columns]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df.fillna(0, inplace=True) # Fill any NaNs that might have been introduced
 
-    # Only include columns that actually exist in the DataFrame
-    existing_columns = [col for col in all_needed_columns if col in df.columns]
-    df_final = df[existing_columns].copy()
-
-    # Fill NaN values with appropriate defaults for numeric features
-    numeric_fill_cols = [
-        'Academic Performance Change', 'Workload Rating', 'Help Seeking',
-        'Hobby Count', 'Financial Status', 'Average', 'Gender',
-        'Learning_Visual', 'Learning_Auditory', 'Learning_Reading/Writing',
-        'Learning_Kinesthetic', 'Has External Responsibilities'
-    ]
-    for col in numeric_fill_cols:
-        if col in df_final.columns:
-            df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
-
-    # Categorical features that need encoding for clustering
-    categorical_features_to_encode = ['Personality_Raw', 'Birth Order_Raw'] # program_str is NOT here
-    label_encoders = {}
-    for col_raw in categorical_features_to_encode:
-        if col_raw in df_final.columns:
-            df_final[col_raw] = df_final[col_raw].astype(str).fillna('Unknown') # Ensure string type
-            le = LabelEncoder()
-            # Create a new column for the encoded feature (e.g., 'Personality' from 'Personality_Raw')
-            df_final[col_raw.replace('_Raw', '')] = le.fit_transform(df_final[col_raw])
-            label_encoders[col_raw] = le
-
-    # One-hot encode marital status
-    if 'Parents Marital Status_Raw' in df_final.columns:
-        df_final['Parents Marital Status_Raw'] = df_final['Parents Marital Status_Raw'].astype(str).fillna('Unknown')
-        df_final['Marital_Separated'] = (df_final['Parents Marital Status_Raw'] == 'Separated').astype(int)
-        df_final['Marital_Together'] = (df_final['Parents Marital Status_Raw'] == 'Together').astype(int)
-    else:
-        df_final['Marital_Separated'] = 0
-        df_final['Marital_Together'] = 0
-
-    # Define the final list of features that the clustering model expects
-    # These are the *encoded/processed* versions of the features
-    features_for_scaling_and_clustering = [
-        'Academic Performance Change', 'Workload Rating',
-        'Learning_Visual', 'Learning_Auditory', 'Learning_Reading/Writing', 'Learning_Kinesthetic',
-        'Help Seeking', 'Personality', 'Hobby Count', # 'Personality' is now the encoded value
-        'Financial Status', 'Birth Order', # 'Birth Order' is now the encoded value
-        'Has External Responsibilities', 'Average', 'Gender',
-        'Marital_Separated', 'Marital_Together'
-    ]
-
-    # Filter to only include columns that are actually in df_final and are numeric for scaling
-    existing_features_for_scaling = [col for col in features_for_scaling_and_clustering if col in df_final.columns and pd.api.types.is_numeric_dtype(df_final[col])]
-
-    if existing_features_for_scaling:
-        for col in existing_features_for_scaling:
-            df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
-            df_final[col] = df_final[col].replace([np.inf, -np.inf], 0.0)
-
-        scaler = StandardScaler()
-        try:
-            df_final[existing_features_for_scaling] = scaler.fit_transform(df_final[existing_features_for_scaling])
-        except Exception as e:
-            print(f"DEBUG: Scaling error: {e}. Attempting manual normalization.")
-            for col in existing_features_for_scaling:
-                mean_val = df_final[col].mean()
-                std_val = df_final[col].std()
-                if std_val > 0:
-                    df_final[col] = (df_final[col] - mean_val) / std_val
-                else:
-                    df_final[col] = 0.0
-            scaler = None
-    else:
-        scaler = StandardScaler()
-
-    df_final = df_final.fillna(0.0)
-    df_final = df_final.replace([np.inf, -np.inf], 0.0)
-
-    print(f"DEBUG (task.py - select_final_features): Final dataframe shape: {df_final.shape}")
-    print(f"DEBUG (task.py - select_final_features): Final columns: {list(df_final.columns)}")
-    # Debug print to ensure program_str and year_int are still present and their original values
-    print(f"DEBUG (task.py - select_final_features): Sample program_str (before API format): {df_final['program_str'].head().tolist()}")
-    print(f"DEBUG (task.py - select_final_features): Sample year_int (before API format): {df_final['year_int'].head().tolist()}")
-
-
-    return df_final, label_encoders, scaler
+    scaler = StandardScaler()
+    df_scaled = df.copy()
+    df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+    return df_scaled, scaler
 
 def convert_to_api_format(processed_df):
     """
@@ -306,19 +204,30 @@ def convert_to_api_format(processed_df):
 
     return students_list
 
+def save_results(df: pd.DataFrame, df_filepath: str):
+    """
+    Saves the processed DataFrame and the label encoders.
+    """
+    df.to_csv(df_filepath, index=False)
+    print(f"Processed data saved to {df_filepath}")
+
 def preprocess_pipeline(filepath, return_format='dataframe'):
     """Complete preprocessing pipeline with format options."""
     df = load_and_initial_clean(filepath)
-    df = process_grades(df)
-    df = clean_and_transform(df)
-    df_final, label_encoders, scaler = select_final_features(df)
+    df = clean_rename_and_select_columns(df)
+    df = apply_custom_mappings(df)
+    df_final, scaler = scale_features(df)
+
+    # Generate a unique ID for the output file
+    unique_id = uuid.uuid4().hex[:8]
+    output_filepath = f"processed_students_{unique_id}.csv"
+    save_results(df_final, output_filepath)
 
     if return_format == 'api':
         students_list = convert_to_api_format(df_final)
-        return students_list, label_encoders, scaler
+        return students_list, scaler
     else:
-        return df_final, label_encoders, scaler
-
+        return df_final, scaler
 
 if __name__ == "__main__":
     try:
@@ -345,7 +254,7 @@ if __name__ == "__main__":
         dummy_df.to_csv(dummy_filepath, index=False)
         print(f"Created dummy CSV at: {dummy_filepath}")
 
-        processed_data, label_encoders, scaler = preprocess_pipeline(dummy_filepath, return_format='api')
+        processed_data, scaler = preprocess_pipeline(dummy_filepath, return_format='api')
 
         print("\nPreprocessing complete. Data is ready.")
         if processed_data:

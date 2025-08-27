@@ -90,7 +90,7 @@ class CSVProcessor:
 
             # 1) Preprocess to get API-friendly list[dict] for model features
             #    NOTE: Your pipeline signature may be (csv_path, return_format='api')
-            students_list, _, _ = preprocess_pipeline(csv_path, return_format='api')
+            students_list, _ = preprocess_pipeline(csv_path, return_format='api')
 
             if not students_list:
                 raise ValueError("No rows were produced by preprocess_pipeline().")
